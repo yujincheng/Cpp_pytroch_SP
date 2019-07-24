@@ -27,3 +27,7 @@ cmake ..
 ```
 
 Then the keypoints is drawn on opencv. The descriptors are printed on cmd lines.
+
+## Profiling
+
+The data transfer from CUDA to CPU is very time consuming.

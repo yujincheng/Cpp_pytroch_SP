@@ -28,10 +28,14 @@ int main(int argc, const char* argv[]) {
   inpfile.close();
   std::vector<cv::Point> keypoints;
   cv::Mat descriptors;
+  auto t1=std::chrono::steady_clock::now();
   for (int i = 0; i < 1;i++){
     run_superpoint(module, tmpfloat, keypoints, descriptors, H, W);
     std::cout << i * 100 << std::endl;
   }
+  auto t2=std::chrono::steady_clock::now();
+  double dr_ms=std::chrono::duration<double,std::milli>(t2-t1).count();
+  std::cout << "SP all : " << dr_ms << "ms" << std::endl;
   // debug info ==================================================================================================================================
   std::cout << std::endl;
   for (int j = 0; j < descriptors.cols; j++ ){

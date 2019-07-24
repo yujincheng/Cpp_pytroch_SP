@@ -17,12 +17,21 @@
 
 int run_superpoint(std::shared_ptr<torch::jit::script::Module> module_cuda, float* grey, std::vector<cv::Point>& samp_pts, cv::Mat& descout, int H=480, int W=640);
 int run_superpoint(std::shared_ptr<torch::jit::script::Module> module_cuda, float* grey, std::vector<cv::Point>& samp_pts, cv::Mat& descout, int H, int W){
+    std::chrono::steady_clock::time_point timepoint[10];
+        timepoint[0] =std::chrono::steady_clock::now();
   auto inputcuda = torch::from_blob(grey, {1,1,H,W},at::ScalarType::Float).to(at::kCUDA);
-  torch::Tensor output = module_cuda->forward({inputcuda}).toTensor().to(at::kCPU);
+        timepoint[1] =std::chrono::steady_clock::now();
+  torch::Tensor output = module_cuda->forward({inputcuda}).toTensor();
+        timepoint[2] =std::chrono::steady_clock::now();
+//   torch::Tensor output =      output12.to(at::kCPU);
+        timepoint[3] =std::chrono::steady_clock::now();
   torch::Tensor output_s = output.squeeze();
   torch::Tensor heatmap = output_s.slice(0,0,1);  // .index_select(0,lsize1);
   heatmap = heatmap*255;
   torch::Tensor desc = output_s.slice(0,1,257); // .index_select(0,lsize2);
+  desc = torch::transpose(desc,0,1);
+  desc = torch::transpose(desc,1,2);
+  heatmap = heatmap.to(at::kCPU);
   int Hc = int(H / 8);
   int Wc = int(W / 8);
   auto fixmap= heatmap.round().to(torch::kUInt8);
@@ -54,6 +63,7 @@ int run_superpoint(std::shared_ptr<torch::jit::script::Module> module_cuda, floa
         }
     }
   }
+        timepoint[4] =std::chrono::steady_clock::now();
   
   int afternms = pts.size();
   torch::Tensor pts_tensor = torch::from_blob(pts.data(),{afternms/3,3});
@@ -63,14 +73,15 @@ int run_superpoint(std::shared_ptr<torch::jit::script::Module> module_cuda, floa
   auto inds2 = torch::argsort(pts_tensor.index({rows,idx}),-1,true );
   int outpoint_num = std::min(int(pts_tensor.size(0) ),MAX_P_NUM);
   inds2 = inds2.index({torch::arange(0, outpoint_num, torch::kLong)});
+       timepoint[5] =std::chrono::steady_clock::now();
 
   samp_pts.clear();
   samp_pts.resize(outpoint_num);
-  // std::cout << " num :" << int (samp_pts.size() ) << std::endl;
-  // std::cout << " D :" << desc.size(0) << std::endl;
-  descout.create( int (samp_pts.size() ), desc.size(0), CV_32FC1);
-  // std::cout << " col :" << descout.cols << std::endl;
-  // std::cout << " rows :" << descout.rows << std::endl;
+  std::cout << " num :" << int (samp_pts.size() ) << std::endl;
+  std::cout << " D :" << desc.size(2) << std::endl;
+  descout.create( int (samp_pts.size() ), desc.size(2), CV_32FC1);
+  std::cout << " col :" << descout.cols << std::endl;
+  std::cout << " rows :" << descout.rows << std::endl;
   // samp_pts[0] = new float[outpoint_num];
   // samp_pts[1] = new float[outpoint_num];
   for (int i = 0; i < outpoint_num; i++){
@@ -78,9 +89,14 @@ int run_superpoint(std::shared_ptr<torch::jit::script::Module> module_cuda, floa
     samp_pts[i].y = pts_tensor[ inds2[i] ][1].item<float>() ;
     float* pData = descout.ptr<float>(i);
     for(int j = 0; j < descout.cols; j++){
-        pData[j] = desc[j][int(samp_pts[i].x)][int(samp_pts[i].y)].item<float>();
+        // std::cout << " js  :" << j << std::endl;
+        pData[j] = desc[int(samp_pts[i].x)][int(samp_pts[i].y)][j].item<float>();
     }
   }
+        timepoint[6] =std::chrono::steady_clock::now();
+        for (int i = 0; i < 7; i ++ ){
+            std::cout << " time step: " << i << " : " << std::chrono::duration<double,std::milli>(timepoint[i+1] - timepoint[i]).count() << std::endl;
+        }
 
 
   return 0;

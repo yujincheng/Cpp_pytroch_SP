@@ -3,7 +3,7 @@ project(custom_ops)
 
 set(Torch_DIR /home/tsui/yujc/testcpptorch/libtorch/share/cmake/Torch)
 find_package(Torch REQUIRED)
-find_package( OpenCV REQUIRED )
+find_package(OpenCV REQUIRED )
 include_directories(include)
 
 add_executable(example-app src/example-app.cpp)

@@ -16,20 +16,14 @@
 
 
 int main(int argc, const char* argv[]) {
-  if (argc != 2) {
-    std::cerr << "usage: example-app <path-to-exported-script-module>\n";
-    return -1;
-  }
-
-
-  std::shared_ptr<torch::jit::script::Module> module = torch::jit::load(argv[1]);
+  std::shared_ptr<torch::jit::script::Module> module = torch::jit::load("../data/modelSP_fuse.pt");
   module->to(at::kCUDA);
   assert(module != nullptr);
   int H = 480;
   int W = 640;
   float* tmpfloat = new float [1*1*H*W];
   
-  std::ifstream inpfile("/home/tsui/yujc/testcpptorch/pytorchtest/inp.qwe", std::ios::binary);
+  std::ifstream inpfile("../data/inp.qwe", std::ios::binary);
   inpfile.read((char*)tmpfloat, 1*1*H*W*sizeof(float));
   inpfile.close();
   std::vector<cv::Point> keypoints;

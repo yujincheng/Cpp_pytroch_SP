@@ -1,0 +1,208 @@
+#include <torch/script.h> // One-stop header.
+#include <torch/serialize.h> // One-stop header.
+// #include <torch/Functions.h> // One-stop header.
+
+#include <iostream>
+#include <memory>
+#include <algorithm>
+#include <vo_features.h>
+
+int main(int argc, const char* argv[]) {
+  if (argc != 2) {
+    std::cerr << "usage: example-app <path-to-exported-script-module>\n";
+    return -1;
+  }
+
+  // Deserialize the ScriptModule from a file using torch::jit::load().
+  std::shared_ptr<torch::jit::script::Module> module = torch::jit::load(argv[1]);
+
+  assert(module != nullptr);
+  std::cout << "ok\n";
+  std::vector<torch::jit::IValue> inputs;
+  std::cout << "ok\n";
+  // float* tmpfloat = new float [64];
+  // for (int i = 0; i < 64 ; i++){
+  //   tmpfloat[i] = i * 10;
+  // };
+  int H = 480;
+  int W = 640;
+  int Hc = 60;
+  int Wc = 80;
+  float* tmpfloat = new float [1*1*H*W];
+  std::ifstream inpfile("/home/tsui/yujc/testcpptorch/pytorchtest/inp.qwe", std::ios::binary);
+  inpfile.read((char*)tmpfloat, 1*1*H*W*sizeof(float));
+  // for (int i =0;  i < 64 ; i++){
+  //   std::cout << tmpfloat[i] << std::endl;
+  // }
+  at::TensorOptions options(at::ScalarType::Float);
+  torch::Tensor inputdata = torch::from_blob(tmpfloat, {1,1,H,W}, options);
+  // inputdata = inputdata.toType(at::kFloat);
+  // auto inputdata = at::from_file("/home/tsui/yujc/testcpptorch/pytorchtest/inp.bin");
+  // auto inputdata = torch::ones({3, 4});
+  // torch::load(inputdata, "inp.pt");
+  // std::cout << inputdata[0][0][0] << std::endl;
+  // inputs.push_back(torch::ones({1, 1, 480 , 640}));
+  // inputs.push_back(inputdata);
+  std::cout << "ok\n";
+  torch::Tensor output = module->forward({inputdata}).toTensor();
+  std::cout << "ok\n";
+  //std::cout << output.slice(/*dim=*/1, /*start=*/0, /*end=*/5) << '\n';
+  torch::Tensor output_s = output.squeeze();
+  // at::Tensor size1 = torch::linspace(0,64,65);
+  // at::Tensor size2 = torch::linspace(65,320,256);
+  // at::Tensor lsize1 = size1.to(torch::kI64);
+  // at::Tensor lsize2 = size2.to( torch::kI64 );
+  // return 0;
+  torch::Tensor semi = output_s.slice(0,0,65);  // .index_select(0,lsize1);
+  // std::cout << semi[0][0] << std::endl;
+  torch::Tensor semi_HWC_1 = torch::transpose(semi,0,1);
+  torch::Tensor semi_HWC = torch::transpose(semi_HWC_1,1,2);
+  std::cout << semi_HWC << std::endl;
+
+  torch::Tensor desc = output_s.slice(0,65,321); // .index_select(0,lsize2);
+  torch::Tensor desc_HWC_1 = torch::transpose(desc,0,1);
+  torch::Tensor desc_HWC = torch::transpose(desc_HWC_1,1,2);
+  // std::vector<cv::Point2f> points1;
+  // cv::Mat desc1;
+  // int num_semi = 1*1*Hc*Wc*65;
+  // run_superpoint( (float*)semi_HWC.data_ptr(), (float*)desc_HWC.data_ptr(), points1, desc1, num_semi);
+  // std::cout << "finished\n";
+  // cv::Size inputimg = cv::Size(H,W);
+  
+  auto descnorm = torch::normal(desc,0);
+  descnorm = torch::transpose(descnorm,0,1);
+  descnorm = torch::transpose(descnorm,1,2);
+  // std::cout << descnorm << std::endl;
+  // return 0;
+  // std::cout << desc[0][0] << std::endl;
+  // std::cout << desc << std::endl;
+  auto dense = torch::exp(semi);
+  dense = dense / (torch::sum(dense, 0)+.00001);
+  auto nodust = dense.slice(0,0,64);
+
+
+
+
+  int Hc = int(H / 8);
+  int Wc = int(W / 8);
+  nodust = torch::transpose(nodust,0, 1);
+  nodust = torch::transpose(nodust,1, 2);
+  auto heatmap = torch::reshape(nodust, {Hc, Wc, 8, 8});
+  heatmap = torch::transpose(heatmap, 1, 2);
+  heatmap = torch::reshape(heatmap, {Hc*8, Wc*8});
+  heatmap = heatmap*255;
+  auto fixmap= heatmap.round().to(torch::kUInt8);
+  // std::cout << fixmap.max() << std::endl;
+  uint8_t* fixptr = (uint8_t* ) fixmap.data_ptr();
+  uint8_t tmpmax = 0;
+
+  // // for (int i =0; i < 1*1*H*W; i++){
+  // //   if ( fixptr[i] > tmpmax){
+  // //     tmpmax = fixptr[i];
+  // //   }
+  // // }
+  // // std::cout << (int)tmpmax << std::endl;
+  // // std::cout << fixmap[10][64]<< std::endl;
+  // // char* fixsemi = fixmap.data<torch::kI8>();
+  int NMS_Threshold = 4;
+  int MAX_P_NUM = 200;
+
+  std::vector<float> pts;
+  pts.clear();
+  uint8_t tmp_semi = 0;
+  for(int i=0; i<H; i++) {
+    for(int j=0; j<W; j++) {
+        if( fixptr[i*W+j] > 0) {
+            tmp_semi = fixptr[i*W+j];
+            for(int kh=std::max(0,i-NMS_Threshold); kh<std::min(H,i+NMS_Threshold+1); kh++)
+                for(int kw=std::max(0,j-NMS_Threshold); kw<std::min(W,j+NMS_Threshold+1); kw++)
+                    if(i!=kh||j!=kw) {
+                        if(tmp_semi >= fixptr[kh*W+kw])
+                            fixptr[kh*W+kw] = 0;
+                        else
+                            fixptr[i*W+j] = 0;
+                    }
+            if(fixptr[i*W+j] != 0){
+                torch::Tensor tmptensor = torch::ones({3});
+                // std::cout << "i,j: " << i << " " << j << std::endl;
+                pts.push_back(i);
+                pts.push_back(j);
+                pts.push_back(fixptr[i*W+j]);
+                // pts.push_back( tmptensor );
+            }
+        }
+    }
+  }
+  // int afternms = pts.size();
+  // torch::Tensor pts_tensor = torch::from_blob(pts.data(),{afternms/3,3});
+  // // torch::Tensor pts_tensor_conf = pts_tensor.take({2,1})
+  // // auto inds2 = torch::argsort(pts_tensor,,true);
+  // // std::cout << pts_tensor << std::endl;
+  // auto idx = 2 * torch::ones( pts_tensor.size(0), torch::kLong);
+  // auto rows = torch::arange(0, pts_tensor.size(0), torch::kLong);
+  // // std::cout << pts_tensor.index({rows,idx}) << std::endl;
+
+  // auto inds2 = torch::argsort(pts_tensor.index({rows,idx}),-1,true );
+  // // std::cout << inds2 << std::endl;
+  // int leninds2 = pts_tensor.size(0);
+
+  // int outpoint_num = std::min(leninds2,MAX_P_NUM);
+  // inds2 = inds2.index({torch::arange(0, outpoint_num, torch::kLong)});
+
+  // // std::cout << inds2 << std::endl;
+  // float* samp_pts[2];
+  // samp_pts[0] = new float[outpoint_num];
+  // samp_pts[1] = new float[outpoint_num];
+  // for (int i = 0; i < outpoint_num; i++){
+  //   samp_pts[0][i] = pts_tensor[ inds2[i] ][0].item<float>() ;
+  //   samp_pts[1][i] = pts_tensor[ inds2[i] ][1].item<float>() ;
+  // }
+
+  // auto outputdesp = torch::ones({outpoint_num,256});
+  // auto outpoints = torch::ones({outpoint_num,2});
+  // for (int i = 0; i < outpoint_num; i++){
+  //   outpoints[i][0] = samp_pts[0][i];
+  //   outpoints[i][1] = samp_pts[1][i];
+  //   int x_out = round(samp_pts[0][i]/8.);
+  //   x_out = x_out - floor(x_out/(H/8));
+  //   int y_out = round(samp_pts[1][i]/8.);
+  //   y_out = y_out - floor(y_out/(W/8));
+  //   outputdesp[i] = descnorm[x_out][y_out];
+  // }
+  // std::ofstream ptsfile("samp_pts.dat", std::ios::binary);
+  // ptsfile.write((char*)outpoints.data_ptr(),2*sizeof(float)*outpoint_num);
+  // ptsfile.close();
+  // std::ofstream descfile("samp_desc.dat", std::ios::binary);
+  // descfile.write((char*)outputdesp.data_ptr(),256*sizeof(float)*outpoint_num);
+  // descfile.close();
+
+  // std::cout << outputdesp << std::endl;
+  // std::cout << samp_pts << std::endl;
+  // std::cout << pts_tensor[inds2[0]] << std::endl;
+  // std::cout << pts_tensor[inds2[1]] << std::endl;
+  // samp_pts = samp_pts.t();
+  // std::cout << samp_pts << std::endl;
+  // auto descout = at::grid_sampler_2d(descnorm, samp_pts, 1, 1);
+  // std::cout << pts_tensor.index({inds2, idx}  ) << std::endl;
+  // auto pts_sort = at::zeros({pts_tensor.size(0),pts_tensor.size(1)} );
+  // // pts_sort.index({rows,0*torch::ones( pts_tensor.size(0), torch::kLong)}) = pts_tensor.index({inds2,0*torch::ones( pts_tensor.size(0), torch::kLong)});
+  // // pts_sort.index({rows,1*torch::ones( pts_tensor.size(0), torch::kLong)}) = pts_tensor.index({inds2,1*torch::ones( pts_tensor.size(0), torch::kLong)});
+  // std::cout << pts_tensor.index({inds2,idx}) << std::endl;
+  // pts_sort.index_copy(0 , idx , pts_tensor.index({inds2,idx} ) );
+  // std::cout << pts_sort.index({rows,idx}) << std::endl;
+  // // std::cout << pts_tensor.index({inds2,idx}) << std::endl;
+  
+  // // auto inds = torch::argsort(pts.slice(1,2,3));
+  cv::Mat inputimg(H, W, CV_32FC1, tmpfloat);
+  for(auto val : points1)
+  {
+    cv::Point p(val.x, val.y);
+    cv::circle(inputimg, p , 1, (0, 255, 0), -1);
+  }
+  cv::imshow("src", inputimg);
+  cv::waitKey();
+
+    
+
+  return 0;
+}

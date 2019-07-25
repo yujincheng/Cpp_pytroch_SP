@@ -25,21 +25,26 @@ int run_superpoint(std::shared_ptr<torch::jit::script::Module> module_cuda, floa
         timepoint[2] =std::chrono::steady_clock::now();
 //   torch::Tensor output =      output12.to(at::kCPU);
         timepoint[3] =std::chrono::steady_clock::now();
+
+  int Hc = int(H / 8);
+  int Wc = int(W / 8);
   torch::Tensor output_s = output.squeeze();
+//   output_s = output_s.to(at::kCPU);
   torch::Tensor heatmap = output_s.slice(0,0,1);  // .index_select(0,lsize1);
-  heatmap = heatmap*255;
-  torch::Tensor desc = output_s.slice(0,1,257); // .index_select(0,lsize2);
+//   heatmap = heatmap*255;
+  torch::Tensor desc_reshape = output_s.slice(0,1,65); // .index_select(0,lsize2);
+  torch::Tensor desc = torch::reshape(desc_reshape, {-1,Hc,Wc} );
   desc = torch::transpose(desc,0,1);
   desc = torch::transpose(desc,1,2);
   heatmap = heatmap.to(at::kCPU);
-  int Hc = int(H / 8);
-  int Wc = int(W / 8);
-  auto fixmap= heatmap.round().to(torch::kUInt8);
-  uint8_t* fixptr = (uint8_t* ) fixmap.data_ptr();
-  uint8_t tmpmax = 0;
+  desc = desc.to(at::kCPU);
+//   auto fixmap= heatmap.round().to(torch::kUInt8);
+//   uint8_t* fixptr = (uint8_t* ) fixmap.data_ptr();
+  float* fixptr = (float* ) heatmap.data_ptr();
+  float tmpmax = 0;
   std::vector<float> pts;
   pts.clear();
-  uint8_t tmp_semi = 0;
+  float tmp_semi = 0;
   for(int i=0; i<H; i++) {
     for(int j=0; j<W; j++) {
         if( fixptr[i*W+j] > 0) {
@@ -84,14 +89,19 @@ int run_superpoint(std::shared_ptr<torch::jit::script::Module> module_cuda, floa
   std::cout << " rows :" << descout.rows << std::endl;
   // samp_pts[0] = new float[outpoint_num];
   // samp_pts[1] = new float[outpoint_num];
+  float* desc_ptr = (float*)desc.data_ptr();
   for (int i = 0; i < outpoint_num; i++){
     samp_pts[i].x = pts_tensor[ inds2[i] ][0].item<float>() ;
     samp_pts[i].y = pts_tensor[ inds2[i] ][1].item<float>() ;
     float* pData = descout.ptr<float>(i);
-    for(int j = 0; j < descout.cols; j++){
+    // for(int j = 0; j < descout.cols; j++){
         // std::cout << " js  :" << j << std::endl;
-        pData[j] = desc[int(samp_pts[i].x)][int(samp_pts[i].y)][j].item<float>();
-    }
+        // pData[j] = desc[int(samp_pts[i].x / 8)][int(samp_pts[i].y / 8)][j].item<float>();
+        int x1 = int(samp_pts[i].x / 8);
+        int x2 = int(samp_pts[i].y / 8);
+        memcpy(pData, desc_ptr+(x2*descout.cols + x1*Wc*descout.cols) , sizeof(float)*descout.cols );
+        // pData[j] = *(desc_ptr+( j + x2*descout.cols + x1*Wc*descout.cols ) );
+    // }
   }
         timepoint[6] =std::chrono::steady_clock::now();
         for (int i = 0; i < 7; i ++ ){

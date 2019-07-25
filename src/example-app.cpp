@@ -16,7 +16,7 @@
 
 
 int main(int argc, const char* argv[]) {
-  std::shared_ptr<torch::jit::script::Module> module = torch::jit::load("../data/modelSP_fuse.pt");
+  std::shared_ptr<torch::jit::script::Module> module = torch::jit::load("/home/tsui/yujc/testcpptorch/pytorchtest/modelSP_fuse_less.pt");
   module->to(at::kCUDA);
   assert(module != nullptr);
   int H = 480;

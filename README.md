@@ -22,7 +22,9 @@ Change the Torch\_DIR to your path
 
 ```
 mkdir build
+cd build
 cmake ..
+make
 ./example-app
 ```
 

@@ -8,7 +8,7 @@
 #include "opencv2/video/tracking.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
 #include "opencv2/highgui/highgui.hpp"
-#include <superpoint.hpp>
+#include <superpoint.h>
 // #include <vo_features.h>
 
 #define MAX_P_NUM  200
@@ -16,7 +16,7 @@
 
 
 int main(int argc, const char* argv[]) {
-  std::shared_ptr<torch::jit::script::Module> module = torch::jit::load("/home/tsui/yujc/testcpptorch/pytorchtest/modelSP_fuse_less.pt");
+  std::shared_ptr<torch::jit::script::Module> module = torch::jit::load("../data/modelSP_fuse_less.pt");
   module->to(at::kCUDA);
   assert(module != nullptr);
   int H = 480;
